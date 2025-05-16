@@ -1,0 +1,255 @@
+---
+title: "Semantic Analysis NOS"
+author: "Robin Wensky, Clara Brendler, Damian"
+format: html
+editor: visual
+---
+
+```{r}
+install.packages("pdftools") #"no" eingeben, damit es einfach weiter geht
+
+```
+
+```{r}
+library(pdftools)
+
+# Pfad zur PDF-Datei
+OSR16_path <- "/Users/robinwensky/Downloads/OSR16.pdf"
+OSR17_path <- "/Users/robinwensky/Downloads/OSR17.pdf"
+
+# Text extrahieren
+OSR16 <- pdf_text(OSR16_path)
+OSR17 <- pdf_text(OSR17_path)
+
+# Ausgabe des Texts der ersten Seite
+cat(OSR16[5])
+
+
+cat(OSR16) # <- zentrale Datei
+cat(OSR17) 
+
+```
+
+Erstes Problem: Seite 5 (cat(text\[5\])) zeigt rechts Text an. "Opening up research ..." Das liegt daran, dass es im pdf ab und zu Zitate gibt, die neben dem Haupttext floaten.
+
+Lösen könnte man das indem man statt pdf_text, pdf_data verwendet. Hier bekommt man den Text mit Koordinatendaten zurück und kann dann basierend darauf mit Filtern Haupttext und Zitate trennen.
+
+Wie hier vorgegangen werden soll ist unklar. Das Problem sollte bedacht werden
+
+Lösungsversuch:
+
+```{r}
+library(pdftools)
+library(dplyr)
+
+# PDF einlesen – ersetzt durch dein Dateipfad
+data <- pdf_data(pdf_path)[[5]] # erste Seite
+
+# Beispiel: Alle Textteile rechts außen extrahieren (z. B. Zitate)
+zitate <- data %>% filter(x > 357)
+
+# Haupttext extrahieren
+haupttext <- data %>% filter(x <= 357)
+
+# Als Text zusammensetzen
+zitat_text <- paste(zitate$text, collapse = " ")
+haupttext_text <- paste(haupttext$text, collapse = " ")
+
+# Ausgabe
+cat("Zitat (floatend):\n", zitat_text, "\n\n")
+cat("Haupttext:\n", haupttext_text)
+```
+
+Klappt leider nicht so gut... Ist viel friemelarbeit und am Ende muss man das manuell für jede Seite machen.
+
+```{r}
+full_text <- paste(text)
+full_text
+## eig unnötig? warum sind \n drin?
+```
+
+Ziel 1: Wordcloud erstellen
+
+Necessary Preprocessing:
+
+```{r}
+#install.packages(c("quanteda", "wordcloud", "quanteda.textstats"))
+library(quanteda)
+library(wordcloud)
+library(quanteda.textstats)
+
+corp <- corpus(OSR16)
+toks <- tokens(corp)
+dfm_simple <- dfm(toks)
+word_freq <- textstat_frequency(dfm_simple)
+
+# 6. Wordcloud erstellen
+set.seed(123)
+wordcloud(words = word_freq$feature,
+          freq = word_freq$frequency,
+          max.words = 100,
+          random.order = FALSE,
+          colors = RColorBrewer::brewer.pal(8, "Dark2"))
+```
+
+```{r}
+
+# 2. Corpus & Tokenisierung mit Vorverarbeitung
+toks <- corpus(OSR16) |>
+  tokens(remove_punct = TRUE, remove_numbers = TRUE) |>
+  tokens_tolower() |>
+  tokens_remove(stopwords("en"))  # "de" falls deutschsprachiger Text
+
+# 3. Dokument-Feature-Matrix erstellen
+dfm_clean <- dfm(toks)
+
+# 4. Häufigkeiten extrahieren
+freqs <- topfeatures(dfm_clean, n = 100)
+
+# 5. Wordcloud zeichnen
+set.seed(123)
+wordcloud(words = names(freqs),
+          freq = freqs,
+          max.words = 100,
+          random.order = FALSE,
+          colors = RColorBrewer::brewer.pal(8, "Dark2"))
+```
+
+```{r}
+# 2. Corpus & Tokenisierung mit Vorverarbeitung
+toks <- corpus(OSR16) |>
+  tokens(remove_punct = TRUE, remove_numbers = TRUE) |>
+  tokens_tolower() |>
+  tokens_remove(stopwords("en"))  # "de" falls deutschsprachiger Text
+
+# 3. Bigrams erstellen (ngrams mit n = 2)
+toks_bigrams <- tokens_ngrams(toks, n = 2)
+
+# 4. DFM & Häufigkeiten
+dfm_bigrams <- dfm(toks_bigrams)
+bigrams_freq <- topfeatures(dfm_bigrams, n = 100)
+names(bigrams_freq) <- gsub("_", " ", names(bigrams_freq))  # hier wird's schöner
+
+# Liste der unerwünschten Bigrams
+unwanted <- c("digital science", "open data", "n =")
+
+# Entfernen aus dem Frequenzvektor
+bigrams_filtered <- bigrams_freq[!names(bigrams_freq) %in% unwanted]
+
+# 5. Wordcloud
+set.seed(123)
+wordcloud(words = names(bigrams_filtered),
+          freq = bigrams_filtered,
+          max.words = 100,
+          random.order = FALSE,
+          colors = RColorBrewer::brewer.pal(8, "Dark2"))
+
+
+
+```
+
+```{r}
+# 3. Trigramme erzeugen
+toks_trigrams <- tokens_ngrams(toks, n = 3)
+
+# 4. DFM erstellen
+dfm_trigrams <- dfm(toks_trigrams)
+
+# 5. Häufigkeiten berechnen
+trigram_freq <- topfeatures(dfm_trigrams, n = 200)
+
+# 6. Optional: "_" durch Leerzeichen ersetzen
+names(trigram_freq) <- gsub("_", " ", names(trigram_freq))
+
+# 7. Optional: bestimmte Trigramme ausschließen
+unwanted_trigrams <- c("= digital science", "n = digital", "n = figure", "data n =")  # <– hier deine Ausschlüsse
+trigram_filtered <- trigram_freq[!names(trigram_freq) %in% unwanted_trigrams]
+
+# 8. Wordcloud zeichnen
+set.seed(123)
+wordcloud(words = names(trigram_filtered),
+          freq = trigram_filtered,
+          max.words = 100,
+          random.order = FALSE,
+          colors = RColorBrewer::brewer.pal(8, "Dark2"))
+```
+
+Für OSR17
+
+```{r}
+
+# 2. Corpus & Tokenisierung mit Vorverarbeitung
+toks <- corpus(OSR17) |>
+  tokens(remove_punct = TRUE, remove_numbers = TRUE) |>
+  tokens_tolower() |>
+  tokens_remove(stopwords("en"))  # "de" falls deutschsprachiger Text
+
+# 3. Dokument-Feature-Matrix erstellen
+dfm_clean <- dfm(toks)
+
+# 4. Häufigkeiten extrahieren
+freqs <- topfeatures(dfm_clean, n = 100)
+
+# 5. Wordcloud zeichnen
+set.seed(123)
+wordcloud(words = names(freqs),
+          freq = freqs,
+          max.words = 100,
+          random.order = FALSE,
+          colors = RColorBrewer::brewer.pal(8, "Dark2"))
+
+## ---
+
+# 2. Corpus & Tokenisierung mit Vorverarbeitung
+toks <- corpus(OSR17) |>
+  tokens(remove_punct = TRUE, remove_numbers = TRUE) |>
+  tokens_tolower() |>
+  tokens_remove(stopwords("en"))  # "de" falls deutschsprachiger Text
+
+# 3. Bigrams erstellen (ngrams mit n = 2)
+toks_bigrams <- tokens_ngrams(toks, n = 2)
+
+# 4. DFM & Häufigkeiten
+dfm_bigrams <- dfm(toks_bigrams)
+bigrams_freq <- topfeatures(dfm_bigrams, n = 100)
+names(bigrams_freq) <- gsub("_", " ", names(bigrams_freq))  # hier wird's schöner
+
+# Liste der unerwünschten Bigrams
+unwanted <- c("science report", "open research", "n =", "open data", "digital science")
+
+# Entfernen aus dem Frequenzvektor
+bigrams_filtered <- bigrams_freq[!names(bigrams_freq) %in% unwanted]
+
+# 5. Wordcloud
+set.seed(123)
+wordcloud(words = names(bigrams_filtered),
+          freq = bigrams_filtered,
+          max.words = 100,
+          random.order = FALSE,
+          colors = RColorBrewer::brewer.pal(8, "Dark2"))
+
+## ---
+# 3. Trigramme erzeugen
+toks_trigrams <- tokens_ngrams(toks, n = 3)
+
+# 4. DFM erstellen
+dfm_trigrams <- dfm(toks_trigrams)
+
+# 5. Häufigkeiten berechnen
+trigram_freq <- topfeatures(dfm_trigrams, n = 200)
+
+# 6. Optional: "_" durch Leerzeichen ersetzen
+names(trigram_freq) <- gsub("_", " ", names(trigram_freq))
+
+# 7. Optional: bestimmte Trigramme ausschließen
+unwanted_trigrams <- c("= digital science", "n = digital", "n = figure", "data n =")  # <– hier deine Ausschlüsse
+trigram_filtered <- trigram_freq[!names(trigram_freq) %in% unwanted_trigrams]
+
+# 8. Wordcloud zeichnen
+set.seed(123)
+wordcloud(words = names(trigram_filtered),
+          freq = trigram_filtered,
+          max.words = 100,
+          random.order = FALSE,
+          colors = RColorBrewer::brewer.pal(8, "Dark2"))
+```
